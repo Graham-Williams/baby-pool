@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}The Baby Pool — Sign in{% endblock %}
+{% block body %}
+<main class="login-wrap">
+  <div class="login-card">
+    <div class="login-emoji" aria-hidden="true">🍼</div>
+    <h1>The Baby Pool 👶</h1>
+    <p class="muted">Sign in to see the guessing pool.</p>
+
+    {% if error %}
+    <div class="login-error" role="alert">{{ error }}</div>
+    {% endif %}
+
+    <form method="post" action="{{ url_for('login_post') }}">
+      {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" required autofocus
+             autocomplete="current-password" inputmode="text">
+      <button type="submit">Enter</button>
+    </form>
+    <p class="muted small">Protected by a shared password.</p>
+  </div>
+</main>
+{% endblock %}

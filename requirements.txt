@@ -1,0 +1,4 @@
+Flask==3.0.3
+# Pin the Flask transitive floor to a patched Werkzeug (CVE-2024-49766/49767).
+Werkzeug>=3.0.6
+gunicorn==23.0.0

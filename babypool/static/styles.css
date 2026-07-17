@@ -1,0 +1,326 @@
+/* baby-pool — mobile-first "baby boy" theme.
+ * Pastel sky-blue / mint / soft-white palette, rounded friendly type, gentle
+ * ambient motion that yields to prefers-reduced-motion. All motion uses
+ * transform/opacity so it stays smooth on a phone. */
+
+:root {
+  --sky-1: #eaf6ff;
+  --sky-2: #d6ecff;
+  --blue: #4a90d9;
+  --blue-deep: #2f6db3;
+  --blue-soft: #bfe0ff;
+  --mint: #cdeede;
+  --ink: #24374a;
+  --ink-soft: #567089;
+  --card: #ffffff;
+  --shadow: 0 6px 18px rgba(60, 110, 165, 0.14);
+  --radius: 18px;
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  font-family: "Nunito", "Segoe UI", "Helvetica Neue", system-ui, -apple-system,
+    Arial, sans-serif;
+  color: var(--ink);
+  line-height: 1.5;
+  background: linear-gradient(180deg, var(--sky-1) 0%, var(--sky-2) 55%, #eef8ff 100%);
+  background-attachment: fixed;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+h1, h2 { font-weight: 800; letter-spacing: -0.01em; }
+
+/* ---- ambient decor layer ------------------------------------------------ */
+
+.sky {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.balloon, .cloud, .star { position: absolute; will-change: transform, opacity; }
+
+.balloon {
+  bottom: -12vh;
+  animation-name: float-up;
+  animation-timing-function: ease-in;
+  animation-iteration-count: infinite;
+  filter: drop-shadow(0 4px 5px rgba(70, 120, 170, 0.18));
+}
+@keyframes float-up {
+  0% { transform: translateY(0) rotate(-4deg); opacity: 0; }
+  10% { opacity: 0.95; }
+  90% { opacity: 0.95; }
+  100% { transform: translateY(-118vh) rotate(4deg); opacity: 0; }
+}
+
+.cloud {
+  left: -20%;
+  opacity: 0.75;
+  animation-name: drift;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+@keyframes drift {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(135vw); }
+}
+
+.star {
+  color: #ffe9a8;
+  animation-name: twinkle;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+@keyframes twinkle {
+  0%, 100% { opacity: 0.15; transform: scale(0.8); }
+  50% { opacity: 0.9; transform: scale(1.15); }
+}
+
+/* Confetti sits above everything but never intercepts taps. */
+#confetti {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  pointer-events: none;
+}
+
+/* ---- page shell --------------------------------------------------------- */
+
+.page {
+  position: relative;
+  z-index: 1;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 1.25rem 1rem 3rem;
+}
+
+.hero { text-align: center; padding: 1rem 0 0.5rem; }
+.hero-emoji { font-size: 3rem; line-height: 1; }
+.hero h1 { margin: 0.3rem 0 0.1rem; font-size: 1.9rem; color: var(--blue-deep); }
+.hero .wave { display: inline-block; }
+.parents { margin: 0.1rem 0; font-size: 1.15rem; font-weight: 700; color: var(--blue); }
+.tagline { margin: 0.35rem 0 0.2rem; color: var(--ink-soft); font-weight: 600; }
+.updated { margin: 0.2rem 0 0; font-size: 0.82rem; color: var(--ink-soft); min-height: 1em; }
+
+/* ---- tabs --------------------------------------------------------------- */
+
+.tabs {
+  display: flex;
+  gap: 0.4rem;
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 999px;
+  padding: 0.3rem;
+  margin: 1.1rem auto 1.3rem;
+  max-width: 360px;
+  box-shadow: var(--shadow);
+}
+.tab {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--ink-soft);
+  font: inherit;
+  font-weight: 800;
+  padding: 0.6rem 0.5rem;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease;
+}
+.tab[aria-selected="true"] { background: var(--blue); color: #fff; box-shadow: var(--shadow); }
+.tab:focus-visible { outline: 3px solid var(--blue-deep); outline-offset: 2px; }
+
+.panel { animation: fade-in 0.25s ease; }
+@keyframes fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.panel:focus { outline: none; }
+.panel-intro { color: var(--ink-soft); font-size: 0.9rem; margin: 0.2rem 0 0.8rem; }
+.empty { text-align: center; color: var(--ink-soft); padding: 2rem 1rem; font-weight: 600; }
+
+/* ---- Data tab ----------------------------------------------------------- */
+
+.entries { display: flex; flex-direction: column; gap: 0.55rem; }
+.entry-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+  box-shadow: var(--shadow);
+  border-left: 5px solid var(--blue-soft);
+}
+.entry-name { font-weight: 800; color: var(--ink); overflow-wrap: anywhere; }
+.entry-meta { text-align: right; flex-shrink: 0; }
+.entry-date { display: block; font-weight: 700; color: var(--blue-deep); }
+.entry-time { display: block; font-size: 0.85rem; color: var(--ink-soft); }
+
+/* ---- Insights: search --------------------------------------------------- */
+
+.search-box {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 1rem;
+  box-shadow: var(--shadow);
+  margin-bottom: 1.2rem;
+}
+.search-box label { display: block; font-weight: 800; margin-bottom: 0.4rem; color: var(--blue-deep); }
+#name-search {
+  width: 100%;
+  font: inherit;
+  padding: 0.7rem 0.9rem;
+  border: 2px solid var(--blue-soft);
+  border-radius: 12px;
+  background: #f7fbff;
+  color: var(--ink);
+}
+#name-search:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 3px rgba(74, 144, 217, 0.25); }
+
+.search-result { margin-top: 0.85rem; }
+.search-result:empty { display: none; }
+.match-lead { font-weight: 800; color: var(--blue-deep); margin-bottom: 0.5rem; }
+.match-name { margin: 0.5rem 0; }
+.match-who { display: inline-block; font-weight: 800; background: var(--mint); color: #1c5c40; padding: 0.15rem 0.6rem; border-radius: 999px; }
+.match-windows { margin: 0.35rem 0 0; padding-left: 1.1rem; }
+.match-windows li { margin: 0.15rem 0; }
+.no-match { color: var(--ink-soft); }
+
+/* ---- Insights: leaderboard --------------------------------------------- */
+
+.leaderboard {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 1rem 1.1rem;
+  box-shadow: var(--shadow);
+  margin-bottom: 1.4rem;
+}
+.leaderboard h2 { margin: 0 0 0.1rem; font-size: 1.15rem; color: var(--blue-deep); }
+#leaderboard-list { margin: 0.5rem 0 0; padding-left: 1.4rem; }
+.lb-row { display: flex; justify-content: space-between; gap: 0.8rem; padding: 0.2rem 0; }
+.lb-name { font-weight: 700; overflow-wrap: anywhere; }
+.lb-time { color: var(--blue); font-weight: 800; flex-shrink: 0; }
+
+/* ---- Insights: timeline ------------------------------------------------- */
+
+.timeline-heading { font-size: 1.2rem; color: var(--blue-deep); margin: 0.4rem 0 0.1rem; }
+.timeline { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.4rem; }
+
+.seg {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0.6rem 0.9rem;
+  border-radius: 14px;
+  background: hsl(var(--hue, 210) 75% 92%);
+  border-left: 6px solid hsl(var(--hue, 210) 60% 62%);
+  cursor: pointer;
+  transition: transform 0.14s ease, box-shadow 0.14s ease, outline-color 0.14s ease;
+}
+.seg:hover { transform: translateX(2px); box-shadow: var(--shadow); }
+.seg:focus-visible { outline: 3px solid var(--blue-deep); outline-offset: 2px; }
+.seg-names { font-weight: 800; color: var(--ink); overflow-wrap: anywhere; }
+.seg-amp { color: var(--ink-soft); font-weight: 700; }
+.seg-range { font-size: 0.82rem; color: var(--ink-soft); margin-top: 0.1rem; }
+.seg-detail {
+  font-size: 0.85rem;
+  color: var(--blue-deep);
+  font-weight: 700;
+  margin-top: 0.4rem;
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: max-height 0.22s ease, opacity 0.22s ease, margin 0.22s ease;
+}
+.seg.open .seg-detail { max-height: 6rem; opacity: 1; }
+
+/* Highlight a searched person's winning bands. */
+.seg.hit {
+  background: #fff3c4;
+  border-left-color: #f2b705;
+  box-shadow: 0 0 0 2px #f2b705 inset, var(--shadow);
+}
+
+/* ---- footer ------------------------------------------------------------- */
+
+.foot { text-align: center; color: var(--ink-soft); font-size: 0.85rem; margin-top: 2.5rem; }
+
+/* ---- login page --------------------------------------------------------- */
+
+.login-wrap {
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+}
+.login-card {
+  background: var(--card);
+  border-radius: 22px;
+  padding: 2rem 1.6rem;
+  box-shadow: var(--shadow);
+  max-width: 360px;
+  width: 100%;
+  text-align: center;
+}
+.login-emoji { font-size: 2.8rem; }
+.login-card h1 { margin: 0.3rem 0 0.2rem; color: var(--blue-deep); font-size: 1.5rem; }
+.login-card form { margin-top: 1rem; text-align: left; }
+.login-card label { display: block; font-weight: 800; margin-bottom: 0.35rem; color: var(--ink); }
+.login-card input[type="password"] {
+  width: 100%;
+  font: inherit;
+  padding: 0.7rem 0.9rem;
+  border: 2px solid var(--blue-soft);
+  border-radius: 12px;
+  background: #f7fbff;
+  color: var(--ink);
+}
+.login-card input[type="password"]:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 3px rgba(74, 144, 217, 0.25); }
+.login-card button {
+  margin-top: 0.9rem;
+  width: 100%;
+  border: none;
+  background: var(--blue);
+  color: #fff;
+  font: inherit;
+  font-weight: 800;
+  padding: 0.75rem;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.login-card button:hover { background: var(--blue-deep); }
+.login-error {
+  background: #ffe0e0;
+  color: #a01a1a;
+  border-radius: 12px;
+  padding: 0.6rem 0.8rem;
+  margin: 0.8rem 0;
+  font-weight: 700;
+}
+.muted { color: var(--ink-soft); }
+.small { font-size: 0.8rem; }
+
+/* ---- wider screens ------------------------------------------------------ */
+
+@media (min-width: 620px) {
+  .hero h1 { font-size: 2.3rem; }
+  .hero-emoji { font-size: 3.6rem; }
+}
+
+/* ---- reduced motion: kill all non-essential animation ------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .balloon, .cloud, .star, .panel, .wave { animation: none !important; }
+  .seg, .tab, .seg-detail, .login-card button { transition: none !important; }
+  html { scroll-behavior: auto; }
+}
