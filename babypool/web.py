@@ -108,6 +108,32 @@ def create_app(data_dir: str | Path | None = None) -> Flask:
     data_dir = Path(
         data_dir or os.environ.get("BABYPOOL_DATA", "/app/data")).resolve()
 
+    # Cache-busting for static assets. Static files ship with a long max-age, so
+    # a browser (or the Cloudflare edge) would otherwise keep serving a stale
+    # app.js / styles.css for hours after a deploy. Version each static URL with
+    # a short content hash so every change to a file yields a NEW URL → guaranteed
+    # fresh fetch on the next page load, no manual hard-refresh needed. The page
+    # HTML itself is dynamic (never cached), so it always emits the current hash.
+    _asset_hashes: dict[str, str] = {}
+
+    def asset(filename: str) -> str:
+        """`url_for('static', ...)` plus a `?v=<content-hash>` cache-buster."""
+        url = url_for("static", filename=filename)
+        try:
+            fp = Path(app.static_folder or "") / filename
+            key = f"{fp}:{fp.stat().st_mtime_ns}"
+            digest = _asset_hashes.get(key)
+            if digest is None:
+                import hashlib
+                digest = hashlib.md5(fp.read_bytes()).hexdigest()[:10]
+                _asset_hashes.clear()  # only ever track the current mtime
+                _asset_hashes[key] = digest
+            return f"{url}?v={digest}"
+        except OSError:
+            return url  # missing file → plain URL (don't 500 a page render)
+
+    app.jinja_env.globals["asset"] = asset
+
     app_host = os.environ.get("APP_HOST", "").strip().lower()
     if not app_host:
         log.warning("APP_HOST not set — Host/Origin pinning disabled "

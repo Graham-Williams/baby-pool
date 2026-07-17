@@ -8,7 +8,7 @@
 {# Emoji favicon as an inline SVG data: URI — no external asset, allowed by the
    CSP's `img-src 'self' data:`. A baby bottle for the "it's a boy" theme. #}
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8D%BC%3C/text%3E%3C/svg%3E">
-<link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+<link rel="stylesheet" href="{{ asset('styles.css') }}">
 <title>{% block title %}The Baby Pool 👶{% endblock %}</title>
 {% block head %}{% endblock %}
 </head>
