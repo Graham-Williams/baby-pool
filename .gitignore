@@ -1,0 +1,19 @@
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+
+# Pool data snapshot — contains guests' names; lives only on the box.
+# The Sheet is the source of truth; this is a generated, gitignored artifact.
+/data/*.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+
+# OS / editor
+.DS_Store

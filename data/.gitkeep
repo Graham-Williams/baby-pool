@@ -1,0 +1,3 @@
+# This directory holds the runtime data snapshot (entries.json), which is
+# gitignored and synced onto the box by Hopper. The dir itself is tracked (via
+# this file) so the bind mount in docker-compose.yml has something to mount.
