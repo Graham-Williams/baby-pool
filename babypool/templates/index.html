@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}The Baby Pool 👶{% endblock %}
+{% block body %}
+{# Ambient "it's a boy" decor. Purely decorative → aria-hidden. Populated /
+   animated by app.js + styles.css, and disabled under prefers-reduced-motion. #}
+<div class="sky" aria-hidden="true">
+  <div class="clouds" id="clouds"></div>
+  <div class="stars" id="stars"></div>
+  <div class="balloons" id="balloons"></div>
+</div>
+{# Confetti canvas fires on a successful name search. Decorative. #}
+<canvas id="confetti" aria-hidden="true"></canvas>
+
+<main class="page">
+  <header class="hero">
+    <div class="hero-emoji" aria-hidden="true">👶</div>
+    {# Title + subtitle are filled at runtime by app.js from /api/entries
+       (data.baby.label / data.baby.parents) via textContent. The static text
+       here is a GENERIC fallback so no family identity ships in the repo. #}
+    <h1 id="pool-title">The Baby Pool <span class="wave" aria-hidden="true">💙</span></h1>
+    <p class="parents" id="pool-parents" hidden></p>
+    <p class="tagline">Closest guess to the birth moment wins!</p>
+    <p class="updated" id="updated"></p>
+  </header>
+
+  {# Accessible tabs. app.js wires roving focus / arrow keys / aria-selected. #}
+  <div class="tabs" role="tablist" aria-label="Views">
+    <button class="tab" id="tab-data" role="tab" aria-selected="true"
+            aria-controls="panel-data">Data</button>
+    <button class="tab" id="tab-insights" role="tab" aria-selected="false"
+            tabindex="-1" aria-controls="panel-insights">Insights</button>
+  </div>
+
+  <section class="panel" id="panel-data" role="tabpanel"
+           aria-labelledby="tab-data" tabindex="0">
+    <p class="panel-intro">Everyone's guess, sorted by predicted arrival.</p>
+    <div id="data-list" class="entries"></div>
+    <p class="empty" id="data-empty" hidden>No guesses in the pool yet — check
+      back soon! 🍼</p>
+  </section>
+
+  <section class="panel" id="panel-insights" role="tabpanel"
+           aria-labelledby="tab-insights" tabindex="0" hidden>
+    <div class="search-box">
+      <label for="name-search">🔎 Search your name</label>
+      <input type="text" id="name-search" list="name-suggest"
+             placeholder="Start typing your name…" autocomplete="off"
+             spellcheck="false">
+      <datalist id="name-suggest"></datalist>
+      <div id="search-result" class="search-result" aria-live="polite"></div>
+    </div>
+
+    <div id="leaderboard" class="leaderboard" hidden>
+      <h2>🏆 Widest coverage</h2>
+      <p class="panel-intro">Who owns the most time on the clock.</p>
+      <ol id="leaderboard-list"></ol>
+    </div>
+
+    <h2 class="timeline-heading">🗓️ Winner timeline</h2>
+    <p class="panel-intro">Each band is the window in which that guess would
+      win. Tap one to see its range.</p>
+    <div id="timeline" class="timeline"></div>
+    <p class="empty" id="insights-empty" hidden>No guesses yet — the timeline
+      fills in once people start guessing. 🍼</p>
+  </section>
+
+  <footer class="foot">
+    <p>Made with 💙 for the newest arrival.</p>
+  </footer>
+</main>
+
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+{% endblock %}

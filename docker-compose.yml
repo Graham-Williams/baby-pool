@@ -1,0 +1,38 @@
+# baby-pool, self-hosted behind the existing Cloudflare tunnel.
+#
+# - Joins the external `km-tracker_default` network so the tunnel can route
+#   baby-pool.graham-williams.com -> http://baby-pool:8080 by service name.
+# - NO host port mapping: reachable only over that network; access is gated by
+#   the app-level shared password (APP_PASSWORD, from the box's untracked .env)
+#   — the SAME shared password as km-tracker / todoist-points / taste-twin.
+# - The only state is the read-only data/entries.json snapshot, bind-mounted
+#   from the box. The Google Sheet is the source of truth; Hopper re-syncs the
+#   snapshot on a cron. Payment columns are stripped at sync time and never
+#   reach this container.
+services:
+  baby-pool:
+    build: .
+    container_name: baby-pool
+    restart: unless-stopped
+    environment:
+      APP_PASSWORD: ${APP_PASSWORD:-}
+      SESSION_SECRET: ${SESSION_SECRET:-}
+      APP_HOST: baby-pool.graham-williams.com
+      APP_ENV: prod
+    volumes:
+      # Read-only mount: the container never writes the snapshot; Hopper does,
+      # on the host side, then it shows up here.
+      - ./data:/app/data:ro
+    networks:
+      - km-tracker_default
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=5)"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+networks:
+  km-tracker_default:
+    external: true

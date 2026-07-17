@@ -1,0 +1,592 @@
+/*
+ * baby-pool front-end.
+ *
+ * Everything is computed client-side from the /api/entries snapshot:
+ *   - the Data tab lists every guess,
+ *   - the Insights tab computes each guess's *winning window* (the closest-guess
+ *     partition of the timeline) and lets a guest search their own name.
+ *
+ * SECURITY: entry names come from a Google Sheet and can contain `&`, `<`,
+ * quotes, etc. They are ONLY ever injected into the DOM via textContent /
+ * createElement / dataset / .value — NEVER innerHTML with an interpolated name.
+ * Keep it that way; the security review checks for it.
+ *
+ * No external network calls, no libraries — the confetti and animations are
+ * hand-rolled so the page stays self-contained under a strict `default-src
+ * 'self'` CSP.
+ */
+"use strict";
+
+(function () {
+  const REDUCED_MOTION =
+    window.matchMedia &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // ---- helpers ------------------------------------------------------------
+
+  /** Parse a naive ISO datetime ("2026-08-20T06:00:00") as LOCAL wall-clock ms.
+   * A date-time ISO string with no timezone offset is parsed as local time by
+   * every modern engine, which is exactly the "wall clock at the hospital"
+   * semantics we want. */
+  function toMs(iso) {
+    const t = new Date(iso).getTime();
+    return Number.isFinite(t) ? t : NaN;
+  }
+
+  const FMT = new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+
+  /** Format an absolute ms instant as e.g. "Aug 19, 1:57 PM". */
+  function fmtInstant(ms) {
+    // Intl gives "Aug 19, 1:57 PM" as "Aug 19 at 1:57 PM" in some locales via
+    // formatToParts; the plain format() is "Aug 19, 1:57 PM" for en-US which is
+    // our audience. Good enough and locale-aware for everyone else.
+    return FMT.format(new Date(ms));
+  }
+
+  /** Human duration from a ms span, e.g. "2d 4h" / "6h 12m" / "48m". */
+  function fmtDuration(ms) {
+    const mins = Math.max(0, Math.round(ms / 60000));
+    const d = Math.floor(mins / 1440);
+    const h = Math.floor((mins % 1440) / 60);
+    const m = mins % 60;
+    const parts = [];
+    if (d) parts.push(d + "d");
+    if (h) parts.push(h + "h");
+    if (m && !d) parts.push(m + "m"); // drop minutes once we're in days territory
+    return parts.length ? parts.join(" ") : "0m";
+  }
+
+  function el(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text != null) node.textContent = text; // textContent = XSS-safe
+    return node;
+  }
+
+  function clear(node) {
+    while (node.firstChild) node.removeChild(node.firstChild);
+  }
+
+  // ---- winner-interval math ----------------------------------------------
+  //
+  // "Closest guess wins" is a 1-D nearest-neighbour partition: guess i owns
+  // everything nearer to it than to any other guess, i.e. the interval bounded
+  // by the midpoints to its neighbours. Guesses at the identical instant are
+  // co-winners sharing one window (a "node").
+
+  /** Build winner nodes from raw entries.
+   * Returns { nodes, domainStart, domainEnd } where each node is
+   * { ms, entries:[...], left, right, openLeft, openRight, visualLen }. */
+  function computeNodes(entries) {
+    const withMs = entries
+      .map((e, i) => ({ entry: e, ms: toMs(e.datetime), origIndex: i }))
+      .filter((x) => Number.isFinite(x.ms))
+      .sort((a, b) => a.ms - b.ms);
+
+    // Group identical instants into co-winner nodes.
+    const nodes = [];
+    for (const x of withMs) {
+      const last = nodes[nodes.length - 1];
+      if (last && last.ms === x.ms) {
+        last.entries.push(x);
+      } else {
+        nodes.push({ ms: x.ms, entries: [x] });
+      }
+    }
+    if (nodes.length === 0) return { nodes: [], domainStart: 0, domainEnd: 0 };
+
+    // Midpoint bounds. First node is open on the left, last open on the right.
+    for (let i = 0; i < nodes.length; i++) {
+      const cur = nodes[i];
+      cur.openLeft = i === 0;
+      cur.openRight = i === nodes.length - 1;
+      cur.left = i === 0 ? -Infinity : (nodes[i - 1].ms + cur.ms) / 2;
+      cur.right =
+        i === nodes.length - 1 ? Infinity : (cur.ms + nodes[i + 1].ms) / 2;
+    }
+
+    // A finite visual domain so open-ended windows and the timeline have a
+    // sensible extent: mirror the first/last half-gap outward. With one node we
+    // pick an arbitrary ±1 day so it renders as a single full band.
+    let lead, trail;
+    if (nodes.length === 1) {
+      lead = trail = 24 * 3600 * 1000;
+    } else {
+      lead = (nodes[1].ms - nodes[0].ms) / 2;
+      trail = (nodes[nodes.length - 1].ms - nodes[nodes.length - 2].ms) / 2;
+    }
+    const domainStart = nodes[0].ms - lead;
+    const domainEnd = nodes[nodes.length - 1].ms + trail;
+
+    // Visual (finite) length of each band, clamping the open ends to the domain.
+    for (const n of nodes) {
+      const l = n.openLeft ? domainStart : n.left;
+      const r = n.openRight ? domainEnd : n.right;
+      n.visualLen = Math.max(0, r - l);
+    }
+    return { nodes, domainStart, domainEnd };
+  }
+
+  /** English description of a node's winning window. */
+  function windowText(node) {
+    if (node.openLeft && node.openRight) {
+      return "any time — the only guess in the pool!";
+    }
+    if (node.openLeft) {
+      return "any time before " + fmtInstant(node.right);
+    }
+    if (node.openRight) {
+      return "any time after " + fmtInstant(node.left);
+    }
+    return "between " + fmtInstant(node.left) + " and " + fmtInstant(node.right);
+  }
+
+  /** Compact range label for a timeline band. */
+  function rangeLabel(node) {
+    if (node.openLeft && node.openRight) return "any time";
+    if (node.openLeft) return "before " + fmtInstant(node.right);
+    if (node.openRight) return "after " + fmtInstant(node.left);
+    return fmtInstant(node.left) + " → " + fmtInstant(node.right);
+  }
+
+  /** Unique winner display names for a node (dedup co-winners w/ same name). */
+  function nodeNames(node) {
+    const seen = [];
+    for (const x of node.entries) {
+      if (!seen.includes(x.entry.name)) seen.push(x.entry.name);
+    }
+    return seen;
+  }
+
+  // ---- rendering ----------------------------------------------------------
+
+  const state = { snapshot: null, nodes: [] };
+
+  /** Populate the page title + subtitle from the snapshot's baby object.
+   * The static HTML ships only a GENERIC fallback ("The Baby Pool") — the
+   * real family label/parents live only in the runtime snapshot and are set
+   * here via textContent (never innerHTML). Guards for missing/empty. */
+  function renderBaby(snapshot) {
+    const baby = (snapshot && snapshot.baby) || {};
+    const label = (typeof baby.label === "string" && baby.label.trim())
+      ? baby.label.trim()
+      : "The Baby Pool";
+    const parents = Array.isArray(baby.parents)
+      ? baby.parents.filter((p) => typeof p === "string" && p.trim())
+      : [];
+
+    const titleEl = document.getElementById("pool-title");
+    if (titleEl) {
+      // Preserve the decorative wave span; only replace the leading text node.
+      const wave = titleEl.querySelector(".wave");
+      titleEl.textContent = label + " ";
+      if (wave) titleEl.appendChild(wave);
+    }
+    document.title = label;
+
+    const parentsEl = document.getElementById("pool-parents");
+    if (parentsEl) {
+      if (parents.length) {
+        parentsEl.textContent = parents.join(" & ");
+        parentsEl.hidden = false;
+      } else {
+        parentsEl.textContent = "";
+        parentsEl.hidden = true;
+      }
+    }
+  }
+
+  function renderUpdated(snapshot) {
+    const node = document.getElementById("updated");
+    if (!node) return;
+    if (snapshot.updated_at) {
+      const d = new Date(snapshot.updated_at);
+      const when = Number.isFinite(d.getTime())
+        ? d.toLocaleString(undefined, {
+            month: "short",
+            day: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+          })
+        : snapshot.updated_at;
+      node.textContent = "Entries as of " + when;
+    } else {
+      node.textContent = "";
+    }
+  }
+
+  function renderData(snapshot) {
+    const list = document.getElementById("data-list");
+    const empty = document.getElementById("data-empty");
+    clear(list);
+    const entries = snapshot.entries || [];
+    empty.hidden = entries.length > 0;
+    for (const e of entries) {
+      const card = el("div", "entry-card");
+      card.appendChild(el("span", "entry-name", e.name));
+      const meta = el("div", "entry-meta");
+      meta.appendChild(el("span", "entry-date", e.date_label || ""));
+      meta.appendChild(el("span", "entry-time", e.time_label || ""));
+      card.appendChild(meta);
+      list.appendChild(card);
+    }
+  }
+
+  function renderTimeline(nodes) {
+    const wrap = document.getElementById("timeline");
+    const empty = document.getElementById("insights-empty");
+    clear(wrap);
+    empty.hidden = nodes.length > 0;
+
+    // Total finite extent for proportional sizing.
+    const total = nodes.reduce((s, n) => s + n.visualLen, 0) || 1;
+    const TARGET = 820; // px of vertical "clock" to spread bands across
+
+    nodes.forEach((node, idx) => {
+      const seg = el("div", "seg");
+      seg.dataset.idx = String(idx);
+      // Proportional height, but every band stays tappable/legible.
+      const h = Math.min(
+        240,
+        Math.max(52, Math.round((node.visualLen / total) * TARGET))
+      );
+      seg.style.minHeight = h + "px";
+      seg.style.setProperty("--hue", String((idx * 47) % 360));
+
+      const names = nodeNames(node);
+      const nameRow = el("div", "seg-names");
+      names.forEach((n, i) => {
+        // Co-winners are joined with " + " (not " & ") so a name that itself
+        // contains "&" — e.g. "Abbey & Warren" — stays unambiguous, reading
+        // "John Heller + Abbey & Warren".
+        if (i) nameRow.appendChild(el("span", "seg-amp", " + "));
+        nameRow.appendChild(el("span", "seg-name", n));
+      });
+      seg.appendChild(nameRow);
+      seg.appendChild(el("div", "seg-range", rangeLabel(node)));
+
+      // Tap/click and keyboard reveal the plain-English window.
+      seg.setAttribute("tabindex", "0");
+      seg.setAttribute("role", "button");
+      seg.setAttribute("aria-label", names.join(" and ") + ": " + windowText(node));
+      const reveal = () => {
+        wrap.querySelectorAll(".seg.open").forEach((s) => {
+          if (s !== seg) s.classList.remove("open");
+        });
+        seg.classList.toggle("open");
+      };
+      seg.addEventListener("click", reveal);
+      seg.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter" || ev.key === " ") {
+          ev.preventDefault();
+          reveal();
+        }
+      });
+
+      const detail = el("div", "seg-detail", windowText(node));
+      seg.appendChild(detail);
+      wrap.appendChild(seg);
+    });
+  }
+
+  function renderLeaderboard(nodes) {
+    const box = document.getElementById("leaderboard");
+    const list = document.getElementById("leaderboard-list");
+    clear(list);
+    // Sum owned (finite/visual) time per person across all their guesses.
+    const byName = new Map();
+    for (const node of nodes) {
+      for (const name of nodeNames(node)) {
+        byName.set(name, (byName.get(name) || 0) + node.visualLen);
+      }
+    }
+    const ranked = [...byName.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+    box.hidden = ranked.length < 2; // no point showing a board of one
+    for (const [name, ms] of ranked) {
+      const li = el("li", "lb-row");
+      li.appendChild(el("span", "lb-name", name));
+      li.appendChild(el("span", "lb-time", fmtDuration(ms)));
+      list.appendChild(li);
+    }
+  }
+
+  function renderSuggestions(snapshot) {
+    const dl = document.getElementById("name-suggest");
+    clear(dl);
+    const seen = new Set();
+    for (const e of snapshot.entries || []) {
+      if (seen.has(e.name)) continue;
+      seen.add(e.name);
+      const opt = document.createElement("option");
+      opt.value = e.name; // property assignment, not innerHTML — safe
+      dl.appendChild(opt);
+    }
+  }
+
+  // ---- name search --------------------------------------------------------
+
+  function highlightSegments(indices) {
+    const set = new Set(indices);
+    document.querySelectorAll("#timeline .seg").forEach((seg) => {
+      seg.classList.toggle("hit", set.has(Number(seg.dataset.idx)));
+    });
+  }
+
+  function runSearch(rawQuery) {
+    const out = document.getElementById("search-result");
+    clear(out);
+    const q = rawQuery.trim().toLowerCase();
+    if (!q) {
+      highlightSegments([]);
+      return;
+    }
+    // Which nodes contain a matching name, and the matched display names.
+    const matchIndices = [];
+    const matchedNames = new Set();
+    state.nodes.forEach((node, idx) => {
+      let hit = false;
+      for (const x of node.entries) {
+        if (x.entry.name.toLowerCase().includes(q)) {
+          hit = true;
+          matchedNames.add(x.entry.name);
+        }
+      }
+      if (hit) matchIndices.push(idx);
+    });
+
+    if (matchIndices.length === 0) {
+      const msg = el("div", "no-match");
+      // Build with textContent pieces so the untrusted query can't inject.
+      msg.appendChild(el("span", null, "No entry found for "));
+      msg.appendChild(el("strong", null, "“" + rawQuery.trim() + "”"));
+      msg.appendChild(el("span", null, ". Double-check the spelling? 🍼"));
+      out.appendChild(msg);
+      highlightSegments([]);
+      return;
+    }
+
+    out.appendChild(el("div", "match-lead", "🎉 Found it! You win if the baby arrives…"));
+    // One line per matching guess, grouped under each distinct name.
+    for (const name of matchedNames) {
+      const block = el("div", "match-name");
+      block.appendChild(el("span", "match-who", name));
+      const ul = el("ul", "match-windows");
+      state.nodes.forEach((node) => {
+        const owns = node.entries.some((x) => x.entry.name === name);
+        if (owns) ul.appendChild(el("li", null, windowText(node)));
+      });
+      block.appendChild(ul);
+      out.appendChild(block);
+    }
+
+    highlightSegments(matchIndices);
+
+    // Scroll the first hit into view + confetti celebration.
+    const first = document.querySelector('#timeline .seg[data-idx="' + matchIndices[0] + '"]');
+    if (first && first.scrollIntoView) {
+      first.scrollIntoView({ behavior: REDUCED_MOTION ? "auto" : "smooth", block: "center" });
+    }
+    Confetti.burst();
+  }
+
+  function debounce(fn, ms) {
+    let t;
+    return function (...args) {
+      clearTimeout(t);
+      t = setTimeout(() => fn.apply(this, args), ms);
+    };
+  }
+
+  // ---- tabs ---------------------------------------------------------------
+
+  function initTabs() {
+    const tabs = [
+      { tab: document.getElementById("tab-data"), panel: document.getElementById("panel-data") },
+      { tab: document.getElementById("tab-insights"), panel: document.getElementById("panel-insights") },
+    ];
+
+    function select(i) {
+      tabs.forEach((t, j) => {
+        const on = i === j;
+        t.tab.setAttribute("aria-selected", on ? "true" : "false");
+        t.tab.tabIndex = on ? 0 : -1;
+        t.panel.hidden = !on;
+      });
+      tabs[i].tab.focus();
+    }
+
+    tabs.forEach((t, i) => {
+      t.tab.addEventListener("click", () => select(i));
+      t.tab.addEventListener("keydown", (ev) => {
+        if (ev.key === "ArrowRight" || ev.key === "ArrowDown") {
+          ev.preventDefault();
+          select((i + 1) % tabs.length);
+        } else if (ev.key === "ArrowLeft" || ev.key === "ArrowUp") {
+          ev.preventDefault();
+          select((i - 1 + tabs.length) % tabs.length);
+        } else if (ev.key === "Home") {
+          ev.preventDefault();
+          select(0);
+        } else if (ev.key === "End") {
+          ev.preventDefault();
+          select(tabs.length - 1);
+        }
+      });
+    });
+  }
+
+  // ---- confetti (hand-rolled, canvas) ------------------------------------
+
+  const Confetti = (function () {
+    const canvas = document.getElementById("confetti");
+    if (!canvas) return { burst() {} };
+    const ctx = canvas.getContext("2d");
+    const COLORS = ["#7cc4ff", "#a9e5ff", "#c9b3ff", "#bff0d4", "#ffd6ec", "#fff3b0"];
+    let particles = [];
+    let running = false;
+
+    function resize() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    window.addEventListener("resize", resize);
+    resize();
+
+    function tick() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      particles.forEach((p) => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.12; // gravity
+        p.rot += p.vr;
+        p.life -= 1;
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rot);
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = Math.max(0, Math.min(1, p.life / 40));
+        ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.6);
+        ctx.restore();
+      });
+      particles = particles.filter((p) => p.life > 0 && p.y < canvas.height + 40);
+      if (particles.length) {
+        requestAnimationFrame(tick);
+      } else {
+        running = false;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+    }
+
+    function burst() {
+      if (REDUCED_MOTION) return; // non-essential motion
+      const cx = canvas.width / 2;
+      const cy = canvas.height * 0.28;
+      for (let i = 0; i < 90; i++) {
+        const angle = (Math.PI * 2 * i) / 90 + Math.random() * 0.3;
+        const speed = 3 + Math.random() * 6;
+        particles.push({
+          x: cx + (Math.random() - 0.5) * 60,
+          y: cy,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed - 3,
+          vr: (Math.random() - 0.5) * 0.3,
+          rot: Math.random() * Math.PI,
+          size: 6 + Math.random() * 8,
+          color: COLORS[(Math.random() * COLORS.length) | 0],
+          life: 60 + Math.random() * 40,
+        });
+      }
+      if (!running) {
+        running = true;
+        requestAnimationFrame(tick);
+      }
+    }
+
+    return { burst };
+  })();
+
+  // ---- ambient decor (balloons / clouds / stars) --------------------------
+
+  function initAmbient() {
+    if (REDUCED_MOTION) return; // honour the user's motion preference
+    const balloons = document.getElementById("balloons");
+    const clouds = document.getElementById("clouds");
+    const stars = document.getElementById("stars");
+    const B = ["🎈", "🍼", "👣", "⭐", "☁️"];
+
+    function make(container, className, count, builder) {
+      if (!container) return;
+      for (let i = 0; i < count; i++) container.appendChild(builder(i));
+    }
+
+    make(balloons, "balloon", 6, (i) => {
+      const b = el("span", "balloon", ["🎈", "🍼", "🧸", "🎈", "👶", "🎈"][i % 6]);
+      b.style.left = 6 + i * 15 + Math.random() * 6 + "%";
+      b.style.animationDuration = 14 + Math.random() * 10 + "s";
+      b.style.animationDelay = -Math.random() * 12 + "s";
+      b.style.fontSize = 1.6 + Math.random() * 1.2 + "rem";
+      return b;
+    });
+    make(clouds, "cloud", 4, (i) => {
+      const c = el("span", "cloud", "☁️");
+      c.style.top = 4 + i * 16 + "%";
+      c.style.animationDuration = 40 + Math.random() * 30 + "s";
+      c.style.animationDelay = -Math.random() * 30 + "s";
+      c.style.fontSize = 2 + Math.random() * 2 + "rem";
+      return c;
+    });
+    make(stars, "star", 18, () => {
+      const s = el("span", "star", "✦");
+      s.style.left = Math.random() * 100 + "%";
+      s.style.top = Math.random() * 60 + "%";
+      s.style.animationDuration = 2 + Math.random() * 3 + "s";
+      s.style.animationDelay = -Math.random() * 4 + "s";
+      s.style.fontSize = 0.5 + Math.random() * 0.9 + "rem";
+      return s;
+    });
+  }
+
+  // ---- boot ---------------------------------------------------------------
+
+  function boot(snapshot) {
+    state.snapshot = snapshot;
+    const { nodes } = computeNodes(snapshot.entries || []);
+    state.nodes = nodes;
+
+    renderBaby(snapshot);
+    renderUpdated(snapshot);
+    renderData(snapshot);
+    renderTimeline(nodes);
+    renderLeaderboard(nodes);
+    renderSuggestions(snapshot);
+
+    const search = document.getElementById("name-search");
+    if (search) {
+      search.addEventListener("input", debounce((ev) => runSearch(ev.target.value), 180));
+    }
+  }
+
+  function init() {
+    initTabs();
+    initAmbient();
+    fetch("/api/entries", { credentials: "same-origin" })
+      .then((r) => r.json())
+      .then(boot)
+      .catch((err) => {
+        // Network/parse failure → render an empty pool rather than a blank page.
+        console.error("Failed to load entries:", err);
+        boot({ updated_at: "", entries: [] });
+      });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
+})();
