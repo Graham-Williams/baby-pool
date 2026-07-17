@@ -377,28 +377,109 @@
     day: "numeric",
   });
 
-  /** Show a tapped bar's winner + exact window below the calendar (touch has no
-   * hover, so this is the accessible reveal; desktop also gets the title attr). */
-  function showCalDetail(node) {
-    const box = document.getElementById("cal-detail");
-    if (!box) return;
-    clear(box);
-    box.appendChild(el("span", "cal-detail-who", nodeNames(node).join(" + ")));
-    box.appendChild(el("span", "cal-detail-win", " — " + windowText(node)));
-  }
+  /**
+   * A single custom, theme-styled tooltip for calendar bars. Works on hover
+   * (desktop), tap/click (mobile + desktop), and keyboard focus — replacing both
+   * the browser-native `title` popup and the old `#cal-detail` panel with one
+   * coherent styled reveal. Content (winner name + exact window) is built with
+   * textContent only, so an untrusted Sheet name can never inject markup.
+   *
+   * Positioned `fixed` in viewport coords from the hovered bar's rect: prefer
+   * above the bar, flip below if it'd clip the top, clamp horizontally so it
+   * never overflows the screen edges. Tap pins it (tap again / tap another bar /
+   * tap or scroll elsewhere dismisses); hover/focus show transiently.
+   */
+  const CalTip = (function () {
+    let root = null, whoEl = null, winEl = null, pinned = null, built = false;
+
+    function build() {
+      if (built) return;
+      built = true;
+      root = el("div", "cal-tooltip");
+      root.setAttribute("role", "tooltip");
+      whoEl = el("span", "cal-tt-who");
+      winEl = el("span", "cal-tt-win");
+      root.appendChild(whoEl);
+      root.appendChild(winEl);
+      document.body.appendChild(root);
+      // Any tap/scroll/resize outside a bar dismisses. Bars stopPropagation on
+      // their own click so a bar tap doesn't fall through to this.
+      document.addEventListener("click", hide);
+      window.addEventListener("scroll", hide, { passive: true });
+      window.addEventListener("resize", hide);
+    }
+
+    function fill(node, hue) {
+      whoEl.textContent = nodeNames(node).join(" + ");
+      whoEl.style.color = "hsl(" + hue + " 55% 38%)"; // the winner's bar colour
+      winEl.textContent = windowText(node);
+    }
+
+    function position(bar) {
+      const r = bar.getBoundingClientRect();
+      const t = root.getBoundingClientRect(); // real size (visible once .show set)
+      let left = r.left + r.width / 2 - t.width / 2;
+      const maxLeft = window.innerWidth - t.width - 8;
+      if (left > maxLeft) left = maxLeft;
+      if (left < 8) left = 8;
+      let top = r.top - t.height - 10; // prefer above the bar
+      root.classList.remove("cal-tooltip-below");
+      if (top < 8) { // would clip the top of the viewport → place below
+        top = r.bottom + 10;
+        root.classList.add("cal-tooltip-below");
+      }
+      root.style.left = left + "px";
+      root.style.top = top + "px";
+      // Caret points at the bar's centre, clamped to stay within the bubble.
+      const caretX = r.left + r.width / 2 - left;
+      root.style.setProperty(
+        "--caret-x", Math.max(12, Math.min(t.width - 12, caretX)) + "px"
+      );
+    }
+
+    function show(bar) {
+      build();
+      fill(bar._calNode, bar._calHue);
+      root.classList.add("show"); // visible → measurable
+      position(bar);
+    }
+
+    // mouseenter / focus: transient preview, but never override a pinned bar.
+    function hover(bar) { if (pinned !== bar) { if (!pinned) show(bar); } }
+    function unhover() { if (!pinned && root) root.classList.remove("show"); }
+
+    // click / Enter / Space: toggle a pinned reveal that survives mouseleave.
+    function toggle(bar) {
+      build();
+      if (pinned === bar) { hide(); }
+      else { pinned = bar; show(bar); }
+    }
+
+    function hide() {
+      pinned = null;
+      if (root) root.classList.remove("show");
+    }
+
+    return { hover, unhover, toggle, hide };
+  })();
 
   /** Render the day-by-day gantt from the SAME winner nodes as the timeline. */
   function renderCalendar(nodes) {
     const wrap = document.getElementById("calendar");
     const empty = document.getElementById("calendar-empty");
-    const detail = document.getElementById("cal-detail");
     if (!wrap) return;
+    CalTip.hide(); // drop any reveal pinned to bars we're about to replace
     clear(wrap);
-    if (detail) clear(detail);
     if (empty) empty.hidden = nodes.length > 0;
     if (!nodes.length) return;
 
     const { days, firstDayStart, lastDayEnd } = buildCalendarDays(nodes);
+
+    // Estimated track pixel width (the track spans the page content width, which
+    // is the same whether or not the Insights tab is currently shown — so we
+    // can't measure a display:none panel; we derive it from the viewport). Used
+    // only to decide when a bar is too tiny to fit even a truncated name.
+    const trackPx = Math.max(220, Math.min(608, (window.innerWidth || 400) - 32));
 
     // Axis header: a few ticks (0, 6, 12, 18, 24) for reading the 24h track.
     const axis = el("div", "cal-axis");
@@ -452,21 +533,36 @@
           bar.classList.add("cal-open-right");
         }
 
-        // Inline label only when the bar is wide enough; otherwise omit it (the
-        // name stays reachable via title/tap). Names via textContent = XSS-safe.
-        if (widthFrac < 0.16) bar.classList.add("cal-narrow");
+        // ALWAYS render the name; the label span truncates with an ellipsis
+        // (CSS: overflow/ellipsis/nowrap) so a mid-width bar shows as much as
+        // fits ("Jeannine Dis…") instead of going blank. Only omit the inline
+        // text for genuinely tiny slivers where not even ~2 chars + ellipsis
+        // fit (~26px of inner width, allowing ~12px for the bar's h-padding);
+        // those stay reachable via the tooltip. Names via textContent = XSS-safe.
+        const innerPx = widthFrac * trackPx - 12;
+        if (innerPx < 26) bar.classList.add("cal-narrow");
         bar.appendChild(el("span", "cal-bar-label", b.nameStr));
 
-        bar.setAttribute("title", b.aria); // browsers render title as plain text
+        // Styled tooltip (hover + tap + focus) replaces the native `title`.
+        // aria-label keeps the name + window available to screen readers; the
+        // native title is deliberately NOT set (no double tooltip).
         bar.setAttribute("aria-label", b.aria);
         bar.setAttribute("role", "button");
         bar.setAttribute("tabindex", "0");
-        const reveal = () => showCalDetail(b.node);
-        bar.addEventListener("click", reveal);
+        bar._calNode = b.node; // stash for the tooltip (expando, not DOM markup)
+        bar._calHue = b.hue;
+        bar.addEventListener("mouseenter", () => CalTip.hover(bar));
+        bar.addEventListener("mouseleave", () => CalTip.unhover());
+        bar.addEventListener("focus", () => CalTip.hover(bar));
+        bar.addEventListener("blur", () => CalTip.unhover());
+        bar.addEventListener("click", (ev) => {
+          ev.stopPropagation(); // don't let the document dismiss-handler fire
+          CalTip.toggle(bar);
+        });
         bar.addEventListener("keydown", (ev) => {
           if (ev.key === "Enter" || ev.key === " ") {
             ev.preventDefault();
-            reveal();
+            CalTip.toggle(bar);
           }
         });
         track.appendChild(bar);
