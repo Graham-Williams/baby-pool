@@ -577,19 +577,39 @@
     const box = document.getElementById("leaderboard");
     const list = document.getElementById("leaderboard-list");
     clear(list);
-    // Sum owned (finite/visual) time per person across all their guesses.
+    // Sum owned time per person across their guesses, keeping the nodes so we
+    // can also show each person's winning window(s). EXCLUDE the open-ended
+    // bookends (the earliest guess's "any time before …" and the latest's
+    // "any time after …"): those windows are unbounded, so their length isn't a
+    // meaningful "coverage" and would unfairly rank whoever guessed first/last.
     const byName = new Map();
     for (const node of nodes) {
+      if (node.openLeft || node.openRight) continue; // skip bookends
       for (const name of nodeNames(node)) {
-        byName.set(name, (byName.get(name) || 0) + node.visualLen);
+        let rec = byName.get(name);
+        if (!rec) { rec = { ms: 0, nodes: [] }; byName.set(name, rec); }
+        rec.ms += node.visualLen;
+        rec.nodes.push(node);
       }
     }
-    const ranked = [...byName.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+    const ranked = [...byName.entries()]
+      .sort((a, b) => b[1].ms - a[1].ms).slice(0, 5);
     box.hidden = ranked.length < 2; // no point showing a board of one
-    for (const [name, ms] of ranked) {
+    for (const [name, rec] of ranked) {
       const li = el("li", "lb-row");
-      li.appendChild(el("span", "lb-name", name));
-      li.appendChild(el("span", "lb-time", fmtDuration(ms)));
+      const head = el("div", "lb-head");
+      head.appendChild(el("span", "lb-name", name));
+      head.appendChild(el("span", "lb-time", fmtDuration(rec.ms)));
+      li.appendChild(head);
+      // One "between X and Y" line per (finite) window this person owns; most
+      // have one, multi-guess folks get all of theirs.
+      const wins = el("div", "lb-windows");
+      rec.nodes
+        .slice()
+        .sort((a, b) => a.left - b.left)
+        .forEach((node) => wins.appendChild(
+          el("span", "lb-win", windowText(node))));
+      li.appendChild(wins);
       list.appendChild(li);
     }
   }
