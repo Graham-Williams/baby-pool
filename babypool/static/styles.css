@@ -247,6 +247,114 @@ h1, h2 { font-weight: 800; letter-spacing: -0.01em; }
   box-shadow: 0 0 0 2px #f2b705 inset, var(--shadow);
 }
 
+/* ---- Insights: calendar (day-by-day gantt) ------------------------------ */
+
+.cal-heading { font-size: 1.2rem; color: var(--blue-deep); margin: 1.6rem 0 0.1rem; }
+.calendar { margin-top: 0.5rem; }
+
+.cal-axis {
+  position: relative;
+  height: 1rem;
+  margin-bottom: 0.25rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+.cal-tick { position: absolute; transform: translateX(-50%); }
+.cal-tick-end { right: 0; transform: none; }
+
+.cal-row { margin: 0 0 0.5rem; }
+.cal-day-label {
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: var(--blue-deep);
+  margin: 0 0 0.18rem;
+}
+
+.cal-track {
+  position: relative;
+  height: 42px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.6);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  /* 6-hour gridlines (0/6/12/18) as a repeating gradient — pure CSS, no
+     per-line divs, no inline styles. */
+  background-image: repeating-linear-gradient(
+    to right,
+    rgba(74, 144, 217, 0.14) 0,
+    rgba(74, 144, 217, 0.14) 1px,
+    transparent 1px,
+    transparent 25%
+  );
+}
+
+.cal-bar {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  min-width: 4px; /* keep even a sliver tappable */
+  box-sizing: border-box;
+  border: 1.5px solid;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  padding: 0 0.35rem;
+  overflow: hidden;
+  cursor: pointer;
+  transition: filter 0.14s ease, transform 0.14s ease, opacity 0.14s ease;
+}
+.cal-bar:hover { filter: brightness(1.04); }
+.cal-bar:focus-visible { outline: 3px solid var(--blue-deep); outline-offset: 1px; z-index: 3; }
+.cal-bar-label {
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+.cal-narrow .cal-bar-label { display: none; }
+
+/* Open ends: dashed edge + a faded arrow meaning "extends earlier/later". */
+.cal-open-left { border-left-style: dashed; border-top-left-radius: 0; border-bottom-left-radius: 0; }
+.cal-open-left::before {
+  content: "←";
+  position: absolute;
+  left: 3px;
+  color: var(--ink-soft);
+  font-weight: 800;
+  font-size: 0.72rem;
+  pointer-events: none;
+}
+.cal-open-right { border-right-style: dashed; border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.cal-open-right::after {
+  content: "→";
+  position: absolute;
+  right: 3px;
+  color: var(--ink-soft);
+  font-weight: 800;
+  font-size: 0.72rem;
+  pointer-events: none;
+}
+
+/* Searched-name highlight: outline the hits, fade the rest. */
+.cal-hit { box-shadow: 0 0 0 2px #f2b705 inset; outline: 2px solid #f2b705; outline-offset: -1px; z-index: 2; }
+.cal-dim { opacity: 0.3; }
+
+.cal-detail { margin-top: 0.55rem; min-height: 1.2em; font-size: 0.9rem; }
+.cal-detail:empty { display: none; }
+.cal-detail-who {
+  display: inline-block;
+  font-weight: 800;
+  background: var(--mint);
+  color: #1c5c40;
+  padding: 0.12rem 0.55rem;
+  border-radius: 999px;
+}
+.cal-detail-win { color: var(--blue-deep); font-weight: 700; }
+
 /* ---- footer ------------------------------------------------------------- */
 
 .foot { text-align: center; color: var(--ink-soft); font-size: 0.85rem; margin-top: 2.5rem; }
@@ -321,6 +429,6 @@ h1, h2 { font-weight: 800; letter-spacing: -0.01em; }
 
 @media (prefers-reduced-motion: reduce) {
   .balloon, .cloud, .star, .panel, .wave { animation: none !important; }
-  .seg, .tab, .seg-detail, .login-card button { transition: none !important; }
+  .seg, .tab, .seg-detail, .cal-bar, .login-card button { transition: none !important; }
   html { scroll-behavior: auto; }
 }
