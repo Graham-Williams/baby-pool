@@ -46,10 +46,14 @@ plus the password gate.
 The box cannot read the Sheet (no Google creds there), so Hopper does the sync
 from an environment that has Google Workspace access:
 
-1. Read the Sheet (cols A–C: Name, Prediction Date, Prediction TOD) via the
-   Google Workspace MCP; write them as a CSV.
-2. `python scripts/build_entries.py rows.csv --updated-at <ISO-UTC> > data/entries.json`
-   — parses dates/times to ISO, strips everything but Name/Date/Time.
+1. Read the Sheet's **`Raw` tab** (cols A–C: Name, Prediction Date, Prediction
+   TOD) via the Google Workspace MCP — range `Raw!A:C`. The Raw tab is the
+   sole source of truth (the sheet has other tabs; ignore them). Write the rows
+   as a CSV.
+2. `python scripts/build_entries.py rows.csv --label <label> --parents <a,b> --updated-at <ISO-UTC> > data/entries.json`
+   — parses dates/times to ISO, strips everything but Name/Date/Time. The
+   `--label`/`--parents` (family-identifying) values are passed at sync time,
+   never committed.
 3. `scp data/entries.json graham@<box>:~/baby-pool/data/entries.json`
    — the container bind-mounts `./data:/app/data:ro`, so the new snapshot is
    served immediately (no rebuild/restart needed).
