@@ -62,6 +62,13 @@
     <div id="timeline" class="timeline"></div>
     <p class="empty" id="insights-empty" hidden>No guesses yet — the timeline
       fills in once people start guessing. 🍼</p>
+
+    <h2 class="cal-heading">📅 Winner calendar</h2>
+    <p class="panel-intro">Day by day, hour by hour — who'd win if the baby
+      arrives then. Tap a bar for the name &amp; exact window. Times are local.</p>
+    <div id="calendar" class="calendar"></div>
+    <p class="empty" id="calendar-empty" hidden>No guesses yet — the calendar
+      fills in once people start guessing. 🍼</p>
   </section>
 
   <footer class="foot">
@@ -69,5 +76,5 @@
   </footer>
 </main>
 
-<script src="{{ url_for('static', filename='app.js') }}"></script>
+<script src="{{ asset('app.js') }}"></script>
 {% endblock %}

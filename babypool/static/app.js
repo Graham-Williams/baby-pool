@@ -163,6 +163,83 @@
     return seen;
   }
 
+  // ---- calendar (day-by-day gantt) helpers --------------------------------
+  //
+  // The calendar reuses the SAME winner nodes/windows as the timeline — no new
+  // winner math. Each node owns [left, right); we clip the open ends to the
+  // first/last covered calendar day, then split each window into per-day slices
+  // so a window crossing midnight becomes two continuous bar segments.
+
+  /** Stable pastel hue [0,360) from a name, so a person's every window shares
+   * one colour. Simple deterministic string hash; unsigned to avoid negatives. */
+  function hueForName(name) {
+    let h = 0;
+    for (let i = 0; i < name.length; i++) {
+      h = (h * 31 + name.charCodeAt(i)) >>> 0;
+    }
+    return h % 360;
+  }
+
+  /** A node's colour hue = its first winner's hue. For a co-winner (tie) node
+   * we key off the first name; ties are rare and both names still show. */
+  function hueForNode(node) {
+    const names = nodeNames(node);
+    return hueForName(names[0] || "");
+  }
+
+  /** Build the list of calendar day rows covering the winner nodes: one entry
+   * per LOCAL calendar day from the day of the earliest guess to the day of the
+   * latest. Returns { days:[{start,end,date}], firstDayStart, lastDayEnd } with
+   * start/end as local-midnight ms bounds (end = next day's midnight, so a day
+   * is its real length even across a DST change). */
+  function buildCalendarDays(nodes) {
+    if (!nodes.length) return { days: [], firstDayStart: 0, lastDayEnd: 0 };
+    const first = new Date(nodes[0].ms);
+    const last = new Date(nodes[nodes.length - 1].ms);
+    let cur = new Date(first.getFullYear(), first.getMonth(), first.getDate());
+    const lastMidnight = new Date(
+      last.getFullYear(), last.getMonth(), last.getDate()
+    ).getTime();
+    const days = [];
+    // Guard against a pathological span blowing up the DOM (shouldn't happen
+    // with real guesses, but keep it bounded).
+    while (cur.getTime() <= lastMidnight && days.length < 400) {
+      const next = new Date(cur.getFullYear(), cur.getMonth(), cur.getDate() + 1);
+      days.push({ start: cur.getTime(), end: next.getTime(), date: new Date(cur) });
+      cur = next;
+    }
+    return {
+      days,
+      firstDayStart: days[0].start,
+      lastDayEnd: days[days.length - 1].end,
+    };
+  }
+
+  /**
+   * Split a half-open window [wStart, wEnd) into per-day slices over `days`
+   * (each day = { start, end } in ms). Pure. Returns [{ dayIndex, start, end }]
+   * clipped to each overlapped day.
+   *
+   * Self-check (reason through — no JS test framework in this repo):
+   *   days = [{start:D0,end:D1},{start:D1,end:D2}]  (D0=Aug19 00:00,
+   *          D1=Aug20 00:00, D2=Aug21 00:00)
+   *   window [Aug19 17:31, Aug20 08:15) →
+   *     day 0: [Aug19 17:31, Aug20 00:00)   (fills to midnight)
+   *     day 1: [Aug20 00:00, Aug20 08:15)   (continues from midnight)
+   *   Because the source node windows already tile [firstDayStart, lastDayEnd)
+   *   with no gaps/overlaps, the union of all slices across all nodes tiles the
+   *   same range exactly — the gantt is continuous down the rows.
+   */
+  function sliceWindowAcrossDays(wStart, wEnd, days) {
+    const slices = [];
+    for (let i = 0; i < days.length; i++) {
+      const s = Math.max(wStart, days[i].start);
+      const e = Math.min(wEnd, days[i].end);
+      if (e > s) slices.push({ dayIndex: i, start: s, end: e });
+    }
+    return slices;
+  }
+
   // ---- rendering ----------------------------------------------------------
 
   const state = { snapshot: null, nodes: [] };
@@ -294,6 +371,208 @@
     });
   }
 
+  const CAL_DAY_FMT = new Intl.DateTimeFormat(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+
+  /**
+   * A single custom, theme-styled tooltip for calendar bars. Works on hover
+   * (desktop), tap/click (mobile + desktop), and keyboard focus — replacing both
+   * the browser-native `title` popup and the old `#cal-detail` panel with one
+   * coherent styled reveal. Content (winner name + exact window) is built with
+   * textContent only, so an untrusted Sheet name can never inject markup.
+   *
+   * Positioned `fixed` in viewport coords from the hovered bar's rect: prefer
+   * above the bar, flip below if it'd clip the top, clamp horizontally so it
+   * never overflows the screen edges. Tap pins it (tap again / tap another bar /
+   * tap or scroll elsewhere dismisses); hover/focus show transiently.
+   */
+  const CalTip = (function () {
+    let root = null, whoEl = null, winEl = null, pinned = null, built = false;
+
+    function build() {
+      if (built) return;
+      built = true;
+      root = el("div", "cal-tooltip");
+      root.setAttribute("role", "tooltip");
+      whoEl = el("span", "cal-tt-who");
+      winEl = el("span", "cal-tt-win");
+      root.appendChild(whoEl);
+      root.appendChild(winEl);
+      document.body.appendChild(root);
+      // Any tap/scroll/resize outside a bar dismisses. Bars stopPropagation on
+      // their own click so a bar tap doesn't fall through to this.
+      document.addEventListener("click", hide);
+      window.addEventListener("scroll", hide, { passive: true });
+      window.addEventListener("resize", hide);
+    }
+
+    function fill(node, hue) {
+      whoEl.textContent = nodeNames(node).join(" + ");
+      whoEl.style.color = "hsl(" + hue + " 55% 38%)"; // the winner's bar colour
+      winEl.textContent = windowText(node);
+    }
+
+    function position(bar) {
+      const r = bar.getBoundingClientRect();
+      const t = root.getBoundingClientRect(); // real size (visible once .show set)
+      let left = r.left + r.width / 2 - t.width / 2;
+      const maxLeft = window.innerWidth - t.width - 8;
+      if (left > maxLeft) left = maxLeft;
+      if (left < 8) left = 8;
+      let top = r.top - t.height - 10; // prefer above the bar
+      root.classList.remove("cal-tooltip-below");
+      if (top < 8) { // would clip the top of the viewport → place below
+        top = r.bottom + 10;
+        root.classList.add("cal-tooltip-below");
+      }
+      root.style.left = left + "px";
+      root.style.top = top + "px";
+      // Caret points at the bar's centre, clamped to stay within the bubble.
+      const caretX = r.left + r.width / 2 - left;
+      root.style.setProperty(
+        "--caret-x", Math.max(12, Math.min(t.width - 12, caretX)) + "px"
+      );
+    }
+
+    function show(bar) {
+      build();
+      fill(bar._calNode, bar._calHue);
+      root.classList.add("show"); // visible → measurable
+      position(bar);
+    }
+
+    // mouseenter / focus: transient preview, but never override a pinned bar.
+    function hover(bar) { if (pinned !== bar) { if (!pinned) show(bar); } }
+    function unhover() { if (!pinned && root) root.classList.remove("show"); }
+
+    // click / Enter / Space: toggle a pinned reveal that survives mouseleave.
+    function toggle(bar) {
+      build();
+      if (pinned === bar) { hide(); }
+      else { pinned = bar; show(bar); }
+    }
+
+    function hide() {
+      pinned = null;
+      if (root) root.classList.remove("show");
+    }
+
+    return { hover, unhover, toggle, hide };
+  })();
+
+  /** Render the day-by-day gantt from the SAME winner nodes as the timeline. */
+  function renderCalendar(nodes) {
+    const wrap = document.getElementById("calendar");
+    const empty = document.getElementById("calendar-empty");
+    if (!wrap) return;
+    CalTip.hide(); // drop any reveal pinned to bars we're about to replace
+    clear(wrap);
+    if (empty) empty.hidden = nodes.length > 0;
+    if (!nodes.length) return;
+
+    const { days, firstDayStart, lastDayEnd } = buildCalendarDays(nodes);
+
+    // Estimated track pixel width (the track spans the page content width, which
+    // is the same whether or not the Insights tab is currently shown — so we
+    // can't measure a display:none panel; we derive it from the viewport). Used
+    // only to decide when a bar is too tiny to fit even a truncated name.
+    const trackPx = Math.max(220, Math.min(608, (window.innerWidth || 400) - 32));
+
+    // Axis header: a few ticks (0, 6, 12, 18, 24) for reading the 24h track.
+    const axis = el("div", "cal-axis");
+    [0, 6, 12, 18, 24].forEach((h) => {
+      const tick = el("span", "cal-tick", String(h));
+      if (h === 24) tick.classList.add("cal-tick-end");
+      else tick.style.left = (h / 24) * 100 + "%";
+      axis.appendChild(tick);
+    });
+    wrap.appendChild(axis);
+
+    // Bucket each node's per-day slices into their day row.
+    const barsByDay = days.map(() => []);
+    nodes.forEach((node, idx) => {
+      const wStart = node.openLeft ? firstDayStart : node.left;
+      const wEnd = node.openRight ? lastDayEnd : node.right;
+      const hue = hueForNode(node);
+      const names = nodeNames(node);
+      const nameStr = names.join(" + ");
+      const aria = nameStr + ": " + windowText(node);
+      sliceWindowAcrossDays(wStart, wEnd, days).forEach((sl) => {
+        barsByDay[sl.dayIndex].push({ node, idx, slice: sl, hue, nameStr, aria });
+      });
+    });
+
+    days.forEach((day, di) => {
+      const row = el("div", "cal-row");
+      row.appendChild(el("div", "cal-day-label", CAL_DAY_FMT.format(day.date)));
+      const track = el("div", "cal-track");
+      const span = day.end - day.start || 1;
+
+      barsByDay[di].forEach((b) => {
+        const leftFrac = (b.slice.start - day.start) / span;
+        const widthFrac = (b.slice.end - b.slice.start) / span;
+
+        const bar = el("div", "cal-bar");
+        bar.dataset.idx = String(b.idx);
+        bar.style.left = leftFrac * 100 + "%";
+        bar.style.width = widthFrac * 100 + "%";
+        // Colours computed in JS → set via .style (allowed under the CSP; no
+        // inline <style>). Pastel fill, darker matching edge.
+        bar.style.backgroundColor = "hsl(" + b.hue + " 70% 84%)";
+        bar.style.borderColor = "hsl(" + b.hue + " 55% 55%)";
+
+        // Open-end caps: only the very first day's left edge / last day's right
+        // edge get the "extends earlier/later" marker.
+        if (b.node.openLeft && b.slice.start === firstDayStart) {
+          bar.classList.add("cal-open-left");
+        }
+        if (b.node.openRight && b.slice.end === lastDayEnd) {
+          bar.classList.add("cal-open-right");
+        }
+
+        // ALWAYS render the name; the label span truncates with an ellipsis
+        // (CSS: overflow/ellipsis/nowrap) so a mid-width bar shows as much as
+        // fits ("Jeannine Dis…") instead of going blank. Only omit the inline
+        // text for genuinely tiny slivers where not even ~2 chars + ellipsis
+        // fit (~26px of inner width, allowing ~12px for the bar's h-padding);
+        // those stay reachable via the tooltip. Names via textContent = XSS-safe.
+        const innerPx = widthFrac * trackPx - 12;
+        if (innerPx < 26) bar.classList.add("cal-narrow");
+        bar.appendChild(el("span", "cal-bar-label", b.nameStr));
+
+        // Styled tooltip (hover + tap + focus) replaces the native `title`.
+        // aria-label keeps the name + window available to screen readers; the
+        // native title is deliberately NOT set (no double tooltip).
+        bar.setAttribute("aria-label", b.aria);
+        bar.setAttribute("role", "button");
+        bar.setAttribute("tabindex", "0");
+        bar._calNode = b.node; // stash for the tooltip (expando, not DOM markup)
+        bar._calHue = b.hue;
+        bar.addEventListener("mouseenter", () => CalTip.hover(bar));
+        bar.addEventListener("mouseleave", () => CalTip.unhover());
+        bar.addEventListener("focus", () => CalTip.hover(bar));
+        bar.addEventListener("blur", () => CalTip.unhover());
+        bar.addEventListener("click", (ev) => {
+          ev.stopPropagation(); // don't let the document dismiss-handler fire
+          CalTip.toggle(bar);
+        });
+        bar.addEventListener("keydown", (ev) => {
+          if (ev.key === "Enter" || ev.key === " ") {
+            ev.preventDefault();
+            CalTip.toggle(bar);
+          }
+        });
+        track.appendChild(bar);
+      });
+
+      row.appendChild(track);
+      wrap.appendChild(row);
+    });
+  }
+
   function renderLeaderboard(nodes) {
     const box = document.getElementById("leaderboard");
     const list = document.getElementById("leaderboard-list");
@@ -332,8 +611,18 @@
 
   function highlightSegments(indices) {
     const set = new Set(indices);
+    // `indices` is empty for both "no query" and "no match" → clear/undim in
+    // both; non-empty means there are hits → dim the non-matching bars.
+    const active = indices.length > 0;
     document.querySelectorAll("#timeline .seg").forEach((seg) => {
       seg.classList.toggle("hit", set.has(Number(seg.dataset.idx)));
+    });
+    // Same searched-name state drives the calendar: bold the person's bars,
+    // fade the rest. Reuses the existing search input/state — no 2nd box.
+    document.querySelectorAll("#calendar .cal-bar").forEach((bar) => {
+      const hit = set.has(Number(bar.dataset.idx));
+      bar.classList.toggle("cal-hit", hit);
+      bar.classList.toggle("cal-dim", active && !hit);
     });
   }
 
@@ -562,6 +851,7 @@
     renderUpdated(snapshot);
     renderData(snapshot);
     renderTimeline(nodes);
+    renderCalendar(nodes);
     renderLeaderboard(nodes);
     renderSuggestions(snapshot);
 

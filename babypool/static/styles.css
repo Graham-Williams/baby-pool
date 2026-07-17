@@ -247,6 +247,152 @@ h1, h2 { font-weight: 800; letter-spacing: -0.01em; }
   box-shadow: 0 0 0 2px #f2b705 inset, var(--shadow);
 }
 
+/* ---- Insights: calendar (day-by-day gantt) ------------------------------ */
+
+.cal-heading { font-size: 1.2rem; color: var(--blue-deep); margin: 1.6rem 0 0.1rem; }
+.calendar { margin-top: 0.5rem; }
+
+.cal-axis {
+  position: relative;
+  height: 1rem;
+  margin-bottom: 0.25rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+.cal-tick { position: absolute; transform: translateX(-50%); }
+.cal-tick-end { right: 0; transform: none; }
+
+.cal-row { margin: 0 0 0.5rem; }
+.cal-day-label {
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: var(--blue-deep);
+  margin: 0 0 0.18rem;
+}
+
+.cal-track {
+  position: relative;
+  height: 42px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.6);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  /* 6-hour gridlines (0/6/12/18) as a repeating gradient — pure CSS, no
+     per-line divs, no inline styles. */
+  background-image: repeating-linear-gradient(
+    to right,
+    rgba(74, 144, 217, 0.14) 0,
+    rgba(74, 144, 217, 0.14) 1px,
+    transparent 1px,
+    transparent 25%
+  );
+}
+
+.cal-bar {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  min-width: 4px; /* keep even a sliver tappable */
+  box-sizing: border-box;
+  border: 1.5px solid;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  padding: 0 0.35rem;
+  overflow: hidden;
+  cursor: pointer;
+  transition: filter 0.14s ease, transform 0.14s ease, opacity 0.14s ease;
+}
+.cal-bar:hover { filter: brightness(1.04); }
+.cal-bar:focus-visible { outline: 3px solid var(--blue-deep); outline-offset: 1px; z-index: 3; }
+.cal-bar-label {
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+.cal-narrow .cal-bar-label { display: none; }
+
+/* Open ends: dashed edge + a faded arrow meaning "extends earlier/later". */
+.cal-open-left { border-left-style: dashed; border-top-left-radius: 0; border-bottom-left-radius: 0; }
+.cal-open-left::before {
+  content: "←";
+  position: absolute;
+  left: 3px;
+  color: var(--ink-soft);
+  font-weight: 800;
+  font-size: 0.72rem;
+  pointer-events: none;
+}
+.cal-open-right { border-right-style: dashed; border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.cal-open-right::after {
+  content: "→";
+  position: absolute;
+  right: 3px;
+  color: var(--ink-soft);
+  font-weight: 800;
+  font-size: 0.72rem;
+  pointer-events: none;
+}
+
+/* Searched-name highlight: outline the hits, fade the rest. */
+.cal-hit { box-shadow: 0 0 0 2px #f2b705 inset; outline: 2px solid #f2b705; outline-offset: -1px; z-index: 2; }
+.cal-dim { opacity: 0.3; }
+
+/* Styled tooltip for calendar bars — one reveal shared by hover, tap & focus.
+   Positioned in JS (fixed, viewport coords) via .style.left/top; --caret-x aims
+   the pointer at the hovered bar. pointer-events:none so it never eats taps
+   (lets an outside tap/scroll dismiss it) and can't block the bars beneath. */
+.cal-tooltip {
+  position: fixed;
+  left: 0;
+  top: -9999px;
+  z-index: 60;
+  max-width: min(260px, calc(100vw - 16px));
+  background: var(--card);
+  border: 1.5px solid var(--blue-soft);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 0.5rem 0.7rem;
+  font-size: 0.85rem;
+  line-height: 1.35;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(2px);
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+.cal-tooltip.show { opacity: 1; visibility: visible; transform: none; }
+.cal-tt-who { display: block; font-weight: 800; overflow-wrap: anywhere; }
+.cal-tt-win { display: block; margin-top: 0.1rem; color: var(--ink-soft); font-weight: 600; }
+
+/* Little caret toward the bar. Default points down (tooltip above the bar);
+   .cal-tooltip-below flips it up (tooltip placed below the bar). */
+.cal-tooltip::after {
+  content: "";
+  position: absolute;
+  left: var(--caret-x, 50%);
+  bottom: -7px;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-top: 7px solid var(--card);
+  filter: drop-shadow(0 1.5px 0 var(--blue-soft));
+}
+.cal-tooltip-below::after {
+  bottom: auto;
+  top: -7px;
+  border-top: none;
+  border-bottom: 7px solid var(--card);
+  filter: drop-shadow(0 -1.5px 0 var(--blue-soft));
+}
+
 /* ---- footer ------------------------------------------------------------- */
 
 .foot { text-align: center; color: var(--ink-soft); font-size: 0.85rem; margin-top: 2.5rem; }
@@ -321,6 +467,6 @@ h1, h2 { font-weight: 800; letter-spacing: -0.01em; }
 
 @media (prefers-reduced-motion: reduce) {
   .balloon, .cloud, .star, .panel, .wave { animation: none !important; }
-  .seg, .tab, .seg-detail, .login-card button { transition: none !important; }
+  .seg, .tab, .seg-detail, .cal-bar, .cal-tooltip, .login-card button { transition: none !important; }
   html { scroll-behavior: auto; }
 }
