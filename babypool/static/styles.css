@@ -107,7 +107,21 @@ h1, h2 { font-weight: 800; letter-spacing: -0.01em; }
 .hero .wave { display: inline-block; }
 .parents { margin: 0.1rem 0; font-size: 1.15rem; font-weight: 700; color: var(--blue); }
 .tagline { margin: 0.35rem 0 0.2rem; color: var(--ink-soft); font-weight: 600; }
-.updated { margin: 0.2rem 0 0; font-size: 0.82rem; color: var(--ink-soft); min-height: 1em; }
+/* Prize badge — a little pill so the $150 pot reads at a glance on both tabs. */
+.prize {
+  display: inline-block;
+  margin: 0.4rem auto 0.15rem;
+  padding: 0.28rem 0.85rem;
+  background: linear-gradient(180deg, #fff6d6, #ffe9a8);
+  border: 1.5px solid #f2c94c;
+  border-radius: 999px;
+  color: #7a5a12;
+  font-weight: 700;
+  font-size: 0.95rem;
+  box-shadow: var(--shadow);
+}
+.prize strong { font-weight: 900; color: #6a4e0f; }
+.updated { margin: 0.4rem 0 0; font-size: 0.82rem; color: var(--ink-soft); min-height: 1em; }
 
 /* ---- tabs --------------------------------------------------------------- */
 
