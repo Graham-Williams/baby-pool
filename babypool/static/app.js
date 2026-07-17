@@ -577,10 +577,14 @@
     const box = document.getElementById("leaderboard");
     const list = document.getElementById("leaderboard-list");
     clear(list);
-    // Sum owned (finite/visual) time per person across all their guesses, and
-    // keep the nodes so we can also show each person's winning window(s).
+    // Sum owned time per person across their guesses, keeping the nodes so we
+    // can also show each person's winning window(s). EXCLUDE the open-ended
+    // bookends (the earliest guess's "any time before …" and the latest's
+    // "any time after …"): those windows are unbounded, so their length isn't a
+    // meaningful "coverage" and would unfairly rank whoever guessed first/last.
     const byName = new Map();
     for (const node of nodes) {
+      if (node.openLeft || node.openRight) continue; // skip bookends
       for (const name of nodeNames(node)) {
         let rec = byName.get(name);
         if (!rec) { rec = { ms: 0, nodes: [] }; byName.set(name, rec); }
@@ -591,20 +595,18 @@
     const ranked = [...byName.entries()]
       .sort((a, b) => b[1].ms - a[1].ms).slice(0, 5);
     box.hidden = ranked.length < 2; // no point showing a board of one
-    // Sort key: open-left window first, else its start instant.
-    const startKey = (n) => (n.openLeft ? -Infinity : n.left);
     for (const [name, rec] of ranked) {
       const li = el("li", "lb-row");
       const head = el("div", "lb-head");
       head.appendChild(el("span", "lb-name", name));
       head.appendChild(el("span", "lb-time", fmtDuration(rec.ms)));
       li.appendChild(head);
-      // One "between X and Y" line per window this person owns (most people
-      // have one; multi-guess folks like a 3-guess entrant get all of theirs).
+      // One "between X and Y" line per (finite) window this person owns; most
+      // have one, multi-guess folks get all of theirs.
       const wins = el("div", "lb-windows");
       rec.nodes
         .slice()
-        .sort((a, b) => startKey(a) - startKey(b))
+        .sort((a, b) => a.left - b.left)
         .forEach((node) => wins.appendChild(
           el("span", "lb-win", windowText(node))));
       li.appendChild(wins);
