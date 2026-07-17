@@ -216,9 +216,13 @@ h1, h2 { font-weight: 800; letter-spacing: -0.01em; }
 }
 .leaderboard h2 { margin: 0 0 0.1rem; font-size: 1.15rem; color: var(--blue-deep); }
 #leaderboard-list { margin: 0.5rem 0 0; padding-left: 1.4rem; }
-.lb-row { display: flex; justify-content: space-between; gap: 0.8rem; padding: 0.2rem 0; }
+.lb-row { display: flex; flex-direction: column; gap: 0.1rem; padding: 0.35rem 0; }
+.lb-head { display: flex; justify-content: space-between; gap: 0.8rem; }
 .lb-name { font-weight: 700; overflow-wrap: anywhere; }
 .lb-time { color: var(--blue); font-weight: 800; flex-shrink: 0; }
+/* Each winning window as a "between X and Y" line under the name. */
+.lb-windows { display: flex; flex-direction: column; gap: 0.05rem; }
+.lb-win { font-size: 0.8rem; color: var(--ink-soft); font-weight: 600; }
 
 /* ---- Insights: timeline ------------------------------------------------- */
 
